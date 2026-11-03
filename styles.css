@@ -45,7 +45,7 @@ h1,h2,h3{line-height:1.3;margin:0}
 .rail{position:fixed;inset:auto 0 0 0;z-index:40;background:var(--surface);
   border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom)}
 .brand{display:none}
-.tabbar{display:grid;grid-template-columns:repeat(4,1fr);height:var(--tabbar-h)}
+.tabbar{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));height:var(--tabbar-h)}
 .tab{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;
   font-size:.72rem;color:var(--ink-2);position:relative;min-height:var(--tabbar-h)}
 .tab-icon{font-size:1.25rem;line-height:1}
@@ -158,9 +158,9 @@ h1,h2,h3{line-height:1.3;margin:0}
 .field{display:block;margin-bottom:14px}
 .field>span{display:block;font-weight:600;font-size:.92rem;margin-bottom:6px}
 .field>span em{font-style:normal;color:var(--ink-2);font-weight:400;font-size:.82rem}
-.field input,.field select{width:100%;min-height:52px;border:1.5px solid var(--line);border-radius:12px;
+.field input,.field select{width:100%;min-width:0;min-height:52px;border:1.5px solid var(--line);border-radius:12px;
   padding:0 14px;background:var(--surface)}
-.field-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.field-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px}
 .autocomplete-field{position:relative}
 .suggestion-list{position:absolute;left:0;right:0;top:100%;z-index:5;background:var(--surface);
   border:1.5px solid var(--line);border-radius:12px;box-shadow:var(--shadow);overflow:hidden}
@@ -184,7 +184,7 @@ h1,h2,h3{line-height:1.3;margin:0}
 .month-nav{display:flex;align-items:center;gap:6px;margin-bottom:12px}
 .month-label{font-size:1.2rem;font-weight:800;flex:1;text-align:center;margin:0}
 .nav-button{width:52px;height:52px;font-size:1.5rem;border:1px solid var(--line);border-radius:12px;background:var(--surface)}
-.calendar{display:grid;grid-template-columns:repeat(7,1fr);gap:6px}
+.calendar{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px}
 .cal-weekday{text-align:center;color:var(--ink-2);font-size:.8rem;font-weight:700;padding:4px 0}
 .cal-day{min-height:56px;border-radius:12px;background:var(--surface);border:1px solid var(--line);
   display:flex;flex-direction:column;align-items:center;padding-top:6px;font-weight:600;position:relative}
@@ -210,9 +210,9 @@ h1,h2,h3{line-height:1.3;margin:0}
 @media (min-width:1024px){.toast{bottom:32px}}
 
 /* ---------- 本棚グリッド（表紙が主役） ---------- */
-.shelf{display:grid;grid-template-columns:repeat(3,1fr);gap:18px 12px}
-@media (min-width:700px){.shelf{grid-template-columns:repeat(4,1fr);gap:22px 16px}}
-@media (min-width:1024px){.shelf{grid-template-columns:repeat(5,1fr)}}
+.shelf{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px 12px}
+@media (min-width:700px){.shelf{grid-template-columns:repeat(4,minmax(0,1fr));gap:22px 16px}}
+@media (min-width:1024px){.shelf{grid-template-columns:repeat(5,minmax(0,1fr))}}
 .shelf .empty-state{grid-column:1/-1}
 .shelf-card{display:flex;flex-direction:column;gap:3px;text-align:left;padding:0;min-height:0;align-items:stretch}
 .shelf-cover{position:relative;display:block;border-radius:10px;overflow:hidden;
@@ -229,8 +229,8 @@ h1,h2,h3{line-height:1.3;margin:0}
   display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;overflow:hidden}
 
 /* ---------- コレクション統計 ---------- */
-.stats-strip{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-top:16px}
-@media (min-width:700px){.stats-strip{grid-template-columns:repeat(4,1fr)}}
+.stats-strip{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:16px}
+@media (min-width:700px){.stats-strip{grid-template-columns:repeat(4,minmax(0,1fr))}}
 .stat{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:12px 14px;display:flex;flex-direction:column}
 .stat-value{font-size:1.3rem;font-weight:900}
 .stat-label{color:var(--ink-2);font-size:.78rem}
@@ -263,7 +263,7 @@ h1,h2,h3{line-height:1.3;margin:0}
 }
 .lightbox[hidden] { display: none; }
 .lightbox img {
-  max-width: 99vw; max-height: 97vh; object-fit: contain;
+  max-width: 100%; max-height: 97vh; object-fit: contain;
   border-radius: 8px; box-shadow: 0 12px 48px rgba(0, 0, 0, .6);
 }
 .lightbox-close {
@@ -297,3 +297,7 @@ h1,h2,h3{line-height:1.3;margin:0}
 }
 /* 認証後のアプリ本体ラッパー（レイアウトには干渉しない） */
 #protectedApp { display: contents; }
+
+/* 横はみ出し対策: 詳細ヘッダーの可変側を縮小可能にし、最終防衛線として横スクロールを抑止 */
+.detail-head > div { min-width: 0; }
+body { overflow-x: clip; }
