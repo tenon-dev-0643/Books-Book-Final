@@ -1,0 +1,301 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Books Book! — 新刊チェッカー</title>
+<meta name="description" content="追いかけている漫画の次巻発売日を、片手で・迷わず確認できる新刊チェッカー">
+<meta name="theme-color" content="#17181c">
+<link rel="icon" type="image/svg+xml" href="./favicon.svg">
+<link rel="shortcut icon" href="./favicon.svg">
+<link rel="preconnect" href="https://www.googleapis.com">
+<link rel="preconnect" href="https://ndlsearch.ndl.go.jp">
+<link rel="preconnect" href="https://api.openbd.jp">
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+<section id="authScreen" class="auth-screen" aria-label="ログイン">
+  <div class="auth-card">
+    <div class="auth-brand"><span class="brand-mark" aria-hidden="true">B!</span></div>
+    <h1 class="auth-title">Books Book!</h1>
+    <p class="auth-sub">あなたの新刊リストを、iPhoneとPCで同期。</p>
+    <p id="authNotice" class="auth-notice" role="status" aria-live="polite">ログイン情報を確認しています。</p>
+    <form id="authForm" hidden>
+      <label class="field"><span>メールアドレス</span><input id="authEmail" type="email" autocomplete="email" required></label>
+      <label class="field"><span>パスワード</span><input id="authPassword" type="password" autocomplete="current-password" minlength="6" required></label>
+      <button class="primary-button auth-submit" id="authLogin" type="submit">ログインする</button>
+      <button id="authRegister" type="button" class="auth-link">初回登録はこちら</button>
+    </form>
+  </div>
+</section>
+
+<div id="protectedApp" hidden>
+<a class="skip-link" href="#main">本文へスキップ</a>
+
+<div class="shell">
+  <!-- サイドバー（広い画面）/ 上部バー（狭い画面） -->
+  <header class="rail">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true">B!</span>
+      <span class="brand-name">Books Book!</span>
+    </div>
+    <nav class="tabbar" aria-label="メイン">
+      <button class="tab is-active" data-tab="home" type="button">
+        <span class="tab-icon" aria-hidden="true">⌂</span><span>ホーム</span>
+      </button>
+      <button class="tab" data-tab="library" type="button">
+        <span class="tab-icon" aria-hidden="true">▤</span><span>一覧</span>
+        <span class="tab-badge" id="titleBadge" hidden></span>
+      </button>
+      <button class="tab" data-tab="calendar" type="button">
+        <span class="tab-icon" aria-hidden="true">▦</span><span>カレンダー</span>
+      </button>
+      <button class="tab" data-tab="settings" type="button">
+        <span class="tab-icon" aria-hidden="true">⚙</span><span>設定</span>
+      </button>
+    </nav>
+    <button class="rail-add" id="railAdd" type="button">＋ 作品を追加</button>
+  </header>
+
+  <main id="main" class="main" tabindex="-1">
+
+    <!-- ===== ホーム: 「次に買う1冊」だけを大きく、残りは時系列 ===== -->
+    <section class="view is-active" id="view-home" aria-labelledby="homeHeading">
+      <h1 id="homeHeading" class="sr-only">ホーム</h1>
+
+      <div id="hero"></div>
+
+      <div id="collectionStats" class="stats-strip" aria-label="コレクションの概要"></div>
+
+      <div class="bulk-bar">
+        <div>
+          <strong>新刊チェック</strong>
+          <p class="helper" style="margin:0">登録した全作品の新刊候補をまとめて探します。</p>
+        </div>
+        <button class="primary-button bulk-button" id="bulkCheckHome" type="button">一括でチェック</button>
+      </div>
+      <p class="sync-status" id="bulkStatus" role="status"></p>
+      <div id="bulkResults"></div>
+
+      <div class="section-head">
+        <h2>これからの発売</h2>
+        <button class="text-button" id="homeToCalendar" type="button">カレンダーで見る →</button>
+      </div>
+      <div id="timeline"></div>
+
+      <div class="section-head">
+        <h2>通知対象</h2>
+        <span class="section-note" id="noticeSummary"></span>
+      </div>
+      <div id="noticeList"></div>
+    </section>
+
+    <!-- ===== 一覧: 検索は上部に固定、カードは行型で大きく ===== -->
+    <section class="view" id="view-library" aria-labelledby="libraryHeading">
+      <h1 id="libraryHeading" class="view-title">登録作品</h1>
+      <div class="sticky-tools">
+        <div class="search-field">
+          <span aria-hidden="true">🔍</span>
+          <input id="searchInput" type="search" placeholder="作品名・作者・メモで検索" aria-label="作品を検索">
+        </div>
+        <label class="sort-field">
+          <span class="sr-only">並び替え</span>
+          <select id="sortOrder">
+            <option value="nextRelease">発売が近い順</option>
+            <option value="name">名前順</option>
+            <option value="recentlyAdded">最近登録した順</option>
+          </select>
+        </label>
+      </div>
+      <button class="secondary-button bulk-wide" id="bulkCheckLibrary" type="button">🔄 登録作品を一括で新刊チェック</button>
+      <div id="mangaList" class="shelf"></div>
+    </section>
+
+    <!-- ===== 作品詳細（一覧から遷移する子画面） ===== -->
+    <section class="view" id="view-detail" aria-labelledby="detailTitle">
+      <button class="back-button" id="detailBack" type="button">← 一覧に戻る</button>
+      <div id="detailBody"></div>
+    </section>
+
+    <!-- ===== カレンダー ===== -->
+    <section class="view" id="view-calendar" aria-labelledby="calendarHeading">
+      <h1 id="calendarHeading" class="view-title">発売カレンダー</h1>
+      <div class="month-nav">
+        <button class="nav-button" id="prevMonth" type="button" aria-label="前月">‹</button>
+        <p class="month-label" id="monthLabel" aria-live="polite"></p>
+        <button class="nav-button" id="nextMonth" type="button" aria-label="翌月">›</button>
+        <button class="text-button" id="thisMonth" type="button">今月</button>
+      </div>
+      <div class="calendar" id="calendar"></div>
+      <p class="calendar-hint">日付をタップすると、その日の発売作品が見られます。</p>
+    </section>
+
+    <!-- ===== 設定 ===== -->
+    <section class="view" id="view-settings" aria-labelledby="settingsHeading">
+      <h1 id="settingsHeading" class="view-title">設定</h1>
+
+      <div class="settings-group">
+        <h2>通知</h2>
+        <label class="field">
+          <span>発売の何日前に知らせるか</span>
+          <select id="noticeDays">
+            <option value="1">前日</option>
+            <option value="3" selected>3日前</option>
+            <option value="7">7日前</option>
+            <option value="14">14日前</option>
+            <option value="30">30日前</option>
+          </select>
+        </label>
+        <label class="switch-row">
+          <input type="checkbox" id="autoNotify">
+          <span>このブラウザを開いている間、自動で通知する</span>
+        </label>
+        <p class="helper" id="notificationHelp">通知にはブラウザの許可が必要です。閉じている間の通知は Discord 連携（下）を使ってください。</p>
+        <button class="secondary-button" id="notifyNow" type="button">いま通知対象を確認する</button>
+      </div>
+
+      <div class="settings-group">
+        <h2>外部サービス（任意・後付け）</h2>
+        <label class="field">
+          <span>Google Books APIキー（未入力でも検索できます）</span>
+          <input id="googleApiKey" type="password" autocomplete="off" placeholder="未設定">
+        </label>
+        <label class="field">
+          <span>Discord Webhook URL（通知の送信先）</span>
+          <input id="discordWebhook" type="password" autocomplete="off" placeholder="https://discord.com/api/webhooks/...">
+        </label>
+        <button class="secondary-button" id="discordTest" type="button">Discordへテスト送信</button>
+        <p class="helper">これらはこの端末のブラウザ内にだけ保存されます。共有端末では入力しないでください。</p>
+      </div>
+
+      <div class="settings-group">
+        <h2>アカウント</h2>
+        <p class="helper"><span id="authUserEmail"></span><br><span id="cloudStatus" role="status">クラウドと同期します</span></p>
+        <button class="secondary-button" id="authLogout" type="button">ログアウト</button>
+      </div>
+
+      <div class="settings-group">
+        <h2>データ</h2>
+        <div class="button-row">
+          <button class="secondary-button" id="exportButton" type="button">バックアップを書き出す</button>
+          <label class="secondary-button file-label">バックアップを読み込む
+            <input id="importInput" type="file" accept="application/json" hidden>
+          </label>
+        </div>
+        <button class="danger-button" id="clearAll" type="button">すべてのデータを削除</button>
+      </div>
+    </section>
+  </main>
+</div>
+
+<!-- 親指ゾーンの主アクション（モバイル） -->
+<button class="fab" id="fabAdd" type="button" aria-haspopup="dialog">＋<span>追加</span></button>
+
+<!-- ===== 追加ボトムシート: 1つの流れで「作品→発売日→候補」 ===== -->
+<div class="sheet-overlay" id="sheetOverlay" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheetTitle">
+    <div class="sheet-handle" aria-hidden="true"></div>
+    <div class="sheet-head">
+      <h2 id="sheetTitle">作品を追加</h2>
+      <button class="icon-button" id="sheetClose" type="button" aria-label="閉じる">×</button>
+    </div>
+
+    <form id="titleForm" autocomplete="off">
+      <label class="field autocomplete-field">
+        <span>作品名 <em>入力すると候補が出ます</em></span>
+        <input id="mangaTitle" required placeholder="例: 葬送のフリーレン" role="combobox"
+               aria-expanded="false" aria-controls="suggestionList" aria-autocomplete="list">
+        <div id="suggestionList" class="suggestion-list" role="listbox" hidden></div>
+      </label>
+      <label class="field">
+        <span>作者（任意・候補から自動入力されます）</span>
+        <input id="mangaAuthor" placeholder="任意">
+      </label>
+      <button class="primary-button" type="submit">この作品を登録</button>
+    </form>
+
+    <div id="sheetAfterAdd" hidden>
+      <div class="sheet-success" id="sheetSuccess" role="status"></div>
+
+      <h3>発売日を手動で追加</h3>
+      <form id="releaseForm">
+        <div class="field-row">
+          <label class="field"><span>巻数</span>
+            <input id="releaseVolume" required inputmode="numeric" placeholder="12"></label>
+          <label class="field"><span>発売日</span>
+            <input id="releaseDate" required type="date"></label>
+        </div>
+        <div class="field-row">
+          <label class="field"><span>価格（税込・任意）</span>
+            <input id="releasePrice" inputmode="numeric" placeholder="748"></label>
+          <label class="field"><span>メモ（任意）</span>
+            <input id="releaseMemo" placeholder="特装版、電子版など"></label>
+        </div>
+        <button class="secondary-button" type="submit">発売日を追加</button>
+      </form>
+
+      <h3>新刊候補を自動で探す</h3>
+      <p class="helper">Google Books と国立国会図書館サーチから、この作品の発売候補を探します。当てはまり度が高いものだけを表示します。</p>
+      <button class="primary-button" id="syncButton" type="button">候補を取得</button>
+      <p class="sync-status" id="syncStatus" role="status"></p>
+      <div id="candidateList"></div>
+
+      <button class="text-button sheet-done" id="sheetDone" type="button">閉じる</button>
+    </div>
+  </div>
+</div>
+
+<!-- 日別シート（カレンダー用） -->
+<div class="sheet-overlay" id="dayOverlay" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="dayTitle">
+    <div class="sheet-handle" aria-hidden="true"></div>
+    <div class="sheet-head">
+      <h2 id="dayTitle">その日の発売</h2>
+      <button class="icon-button" id="dayClose" type="button" aria-label="閉じる">×</button>
+    </div>
+    <div id="dayDetail"></div>
+  </div>
+</div>
+
+<div class="sheet-overlay" id="helpOverlay" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="helpTitle">
+    <div class="sheet-handle" aria-hidden="true"></div>
+    <div class="sheet-head">
+      <h2 id="helpTitle">キーボードショートカット</h2>
+      <button class="icon-button" id="helpClose" type="button" aria-label="閉じる">×</button>
+    </div>
+    <dl class="shortcut-list">
+      <div><dt><kbd>/</kbd></dt><dd>作品検索にフォーカス</dd></div>
+      <div><dt><kbd>n</kbd></dt><dd>作品登録シートを開く</dd></div>
+      <div><dt><kbd>1</kbd>〜<kbd>4</kbd></dt><dd>ホーム／一覧／カレンダー／設定に切り替え</dd></div>
+      <div><dt><kbd>Esc</kbd></dt><dd>シートを閉じる</dd></div>
+      <div><dt><kbd>?</kbd></dt><dd>この一覧を開く／閉じる</dd></div>
+    </dl>
+    <p class="row-sub">入力欄にフォーカス中と日本語変換中は、Esc 以外は動作しません。</p>
+  </div>
+</div>
+
+<div class="lightbox" id="lightbox" hidden>
+  <img id="lightboxImg" alt="表紙の拡大画像">
+  <button class="icon-button lightbox-close" id="lightboxClose" type="button" aria-label="閉じる">×</button>
+</div>
+
+<div class="toast" id="toast" role="status" aria-live="polite">
+  <span id="toastText"></span>
+  <button id="toastUndo" type="button" hidden>元に戻す</button>
+</div>
+
+</div><!-- /#protectedApp -->
+
+<script src="./config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="./auth.js"></script>
+<script src="./app.js"></script>
+<script>
+  if ("serviceWorker" in navigator && location.protocol === "https:") {
+    window.addEventListener("load", () => navigator.serviceWorker.register("./sw.js").catch(console.warn));
+  }
+</script>
+</body>
+</html>
