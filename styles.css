@@ -113,13 +113,14 @@ h1,h2,h3{line-height:1.3;margin:0}
 .empty-state strong{display:block;color:var(--ink);margin-bottom:4px}
 
 /* ---------- 一覧 ---------- */
-.sticky-tools{position:sticky;top:0;z-index:10;background:var(--bg);padding:8px 0 12px;display:flex;gap:10px}
-.search-field{flex:1;display:flex;align-items:center;gap:8px;background:var(--surface);
+.sticky-tools{position:sticky;top:0;z-index:10;background:var(--bg);padding:8px 0 12px;display:flex;gap:10px;min-width:0}
+.search-field{flex:1 1 0%;min-width:0;display:flex;align-items:center;gap:8px;background:var(--surface);
   border:1px solid var(--line);border-radius:12px;padding:0 12px}
-.search-field input{flex:1;border:0;background:none;min-height:48px;min-width:0}
+.search-field input{flex:1;width:0;border:0;background:none;min-height:48px;min-width:0}
 .search-field input:focus{outline:none}
 .search-field:focus-within{outline:3px solid var(--accent);outline-offset:1px}
-.sort-field select{min-height:48px;border:1px solid var(--line);border-radius:12px;background:var(--surface);padding:0 8px}
+.sort-field{flex:0 1 auto;min-width:0;max-width:44%}
+.sort-field select{min-height:48px;border:1px solid var(--line);border-radius:12px;background:var(--surface);padding:0 8px;width:100%;max-width:160px}
 .back-button{font-weight:700;padding:.4rem 0}
 .detail-head{display:flex;gap:16px;background:var(--surface);border:1px solid var(--line);border-radius:20px;padding:18px;margin-bottom:16px}
 .detail-head img,.detail-head .cover-fallback{width:76px;height:110px;object-fit:cover;border-radius:8px;background:var(--surface-2);flex:none}
@@ -300,4 +301,4 @@ h1,h2,h3{line-height:1.3;margin:0}
 
 /* 横はみ出し対策: 詳細ヘッダーの可変側を縮小可能にし、最終防衛線として横スクロールを抑止 */
 .detail-head > div { min-width: 0; }
-body { overflow-x: clip; }
+html, body { overflow-x: clip; }
