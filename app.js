@@ -573,7 +573,7 @@ function showToast(message, undo) {
   toastTimer = setTimeout(() => els.toast.classList.remove("visible"), 5000);
 }
 els.toastUndo.addEventListener("click", () => {
-  if (undoAction) undoAction();
+  if (undoAction) { undoAction(); save(); }
   els.toast.classList.remove("visible"); render();
 });
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) =>
@@ -585,7 +585,7 @@ function coverHTML(url, title) {
 }
 function el(html) { const t = document.createElement("template"); t.innerHTML = html.trim(); return t.content.firstElementChild; }
 
-function render() { save(); renderHome(); renderLibrary(); renderCalendar(); renderSettingsBadge(); }
+function render() { renderHome(); renderLibrary(); renderCalendar(); renderSettingsBadge(); }
 function renderStats() {
   const box = $("#collectionStats"); if (!box) return;
   const now = new Date();
@@ -758,7 +758,7 @@ function openDetail(titleId) {
       const snapshot = { ...r };
       state.releases = state.releases.filter((x) => x.id !== r.id);
       showToast("発売予定を削除しました", () => { state.releases.push(snapshot); });
-      render(); openDetail(titleId);
+      save(); render(); openDetail(titleId);
     });
     return row;
   }) : [el(`<div class="empty-state"><span>発売予定はまだありません。下のフォームか「新刊候補を取得」から追加できます。</span></div>`)]));
@@ -778,7 +778,7 @@ function openDetail(titleId) {
       state.releases.push(...snapR);
       state.candidates.push(...snapC);
     });
-    switchTab("library"); render();
+    switchTab("library"); save(); render();
   });
   $("#detailEdit").addEventListener("click", () => {
     const area = $("#detailEditArea");
@@ -794,7 +794,7 @@ function openDetail(titleId) {
         showToast("同じ作品名がすでに登録されています"); return;
       }
       t.name = name; t.author = $("#eAuthor").value.trim();
-      showToast("保存しました"); render(); openDetail(t.id);
+      showToast("保存しました"); save(); render(); openDetail(t.id);
     });
     area.replaceChildren(form); $("#eName").focus();
   });
@@ -814,7 +814,7 @@ function openDetail(titleId) {
     if (!volume || !date) { showToast("巻数と発売日を確認してください"); return; }
     if (releaseExists({ titleId: t.id, volume, date })) { showToast("同じ巻数・発売日はすでに登録されています"); return; }
     state.releases.push({ id: uid(), titleId: t.id, volume, date, memo: $("#dMemo").value.trim(), price: null, isbn: "", sourceId: "", thumbnailUrl: "" });
-    showToast("発売予定を追加しました"); render(); openDetail(t.id);
+    showToast("発売予定を追加しました"); save(); render(); openDetail(t.id);
   });
 }
 function candidateCard(c) {
@@ -847,6 +847,7 @@ function importCandidate(candidateId) {
   }
   state.candidates = state.candidates.filter((x) => x.id !== candidateId);
   state.calendarDate = dateOnly(c.date);
+  save();
   showToast("発売予定に取り込みました");
   render(); renderCandidates(); renderBulkResults();
   if (state.currentTitleId === c.titleId && $("#view-detail").classList.contains("is-active")) openDetail(c.titleId);
@@ -1010,6 +1011,7 @@ $("#titleForm").addEventListener("submit", (e) => {
     showToast(`「${name}」を登録しました`);
   } else { showToast(`「${t.name}」は登録済みです`); }
   state.sheetTitleId = t.id;
+  save();
   ensureTitleCover(t);
   $("#sheetAfterAdd").hidden = false;
   $("#sheetSuccess").textContent = `「${t.name}」${t.author ? ` / ${t.author}` : ""} — 続けて発売日を追加するか、候補を取得してください。`;
@@ -1032,7 +1034,7 @@ $("#releaseForm").addEventListener("submit", (e) => {
     memo: $("#releaseMemo").value.trim(),
     price: priceAmount ? { amount: priceAmount, currency: "JPY" } : null, isbn: "", sourceId: "", thumbnailUrl: "" });
   e.target.reset();
-  showToast("発売予定を追加しました"); render();
+  showToast("発売予定を追加しました"); save(); render();
 });
 $("#syncButton").addEventListener("click", () => {
   const t = titleFor(state.sheetTitleId);
@@ -1166,7 +1168,7 @@ function refreshSettingsFields() {
 }
 function bindSettings() {
   refreshSettingsFields();
-  $("#noticeDays").addEventListener("change", (e) => { state.noticeDays = Number(e.target.value); render(); });
+  $("#noticeDays").addEventListener("change", (e) => { state.noticeDays = Number(e.target.value); save(); render(); });
   $("#autoNotify").addEventListener("change", async (e) => {
     state.autoNotify = e.target.checked;
     if (state.autoNotify && "Notification" in window && Notification.permission === "default") {
@@ -1200,14 +1202,14 @@ function bindSettings() {
       if (!Array.isArray(parsed.titles) || !Array.isArray(parsed.releases)) throw new Error("形式が違います");
       const clean = sanitizeImport(parsed);
       state.titles = clean.titles; state.releases = clean.releases; state.candidates = [];
-      showToast(`バックアップを読み込みました（作品${clean.titles.length}件・発売予定${clean.releases.length}件）`); render();
+      showToast(`バックアップを読み込みました（作品${clean.titles.length}件・発売予定${clean.releases.length}件）`); save(); render();
     } catch { showToast("読み込みに失敗しました。JSONバックアップを選んでください"); }
     e.target.value = "";
   });
   $("#clearAll").addEventListener("click", () => {
     if (!confirm("すべての作品・発売予定を削除します。本当によろしいですか？")) return;
     state.titles = []; state.releases = []; state.candidates = [];
-    showToast("すべてのデータを削除しました"); render(); renderBulkResults();
+    showToast("すべてのデータを削除しました"); save(); render(); renderBulkResults();
   });
 }
 

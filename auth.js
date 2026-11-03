@@ -8,6 +8,7 @@
   const cloudStatus = document.getElementById('cloudStatus');
   let client = null, user = null, boot = null, timer = null, pending = null, inFlight = false;
   let revision = 0, savedRevision = 0, isStarting = true;
+  let base = null; /* 起動時に読み込んだクラウドデータ（3方向マージの基準） */
   const text = (s) => { notice.textContent = s; };
   const status = (s) => { cloudStatus.textContent = s; };
   const errorText = (e) => e?.message || '通信に失敗しました。接続を確認してください。';
@@ -23,6 +24,7 @@
     try {
       const data = await retrieve();
       if (!user) return;
+      base = data ? structuredClone(data) : null;
       // データはクラウド側が正。旧バージョンのローカルデータは明示的な同意後にのみ移行。
       pending = null; revision = savedRevision = 0; isStarting = true;
       boot(data);
@@ -57,6 +59,31 @@
     if (error) { status(errorText(error)); return; }
     location.reload();
   }
+  /* 3方向マージ: 基準（起動時の読み込み）・最新のクラウド・この端末の保存内容を突き合わせ、
+     他端末の追加を消さない・この端末の削除/編集は反映する・他端末の削除も尊重する */
+  function mergeList(baseArr, cloudArr, localArr) {
+    const baseIds = new Set((baseArr || []).map((x) => x.id));
+    const cloudIds = new Set((cloudArr || []).map((x) => x.id));
+    const localIds = new Set((localArr || []).map((x) => x.id));
+    const byId = new Map();
+    for (const item of cloudArr || []) {
+      if (baseIds.has(item.id) && !localIds.has(item.id)) continue; /* この端末で削除済み */
+      byId.set(item.id, item);
+    }
+    for (const item of localArr || []) {
+      if (baseIds.has(item.id) && !cloudIds.has(item.id)) continue; /* 他端末で削除済み */
+      byId.set(item.id, item); /* この端末の内容が正 */
+    }
+    return [...byId.values()];
+  }
+  function mergeLibraries(baseLib, cloudLib, localLib) {
+    if (!cloudLib || !baseLib) return localLib;
+    return {
+      titles: mergeList(baseLib.titles, cloudLib.titles, localLib.titles),
+      releases: mergeList(baseLib.releases, cloudLib.releases, localLib.releases),
+      noticeDays: localLib.noticeDays ?? cloudLib.noticeDays ?? 3,
+    };
+  }
   async function flush() {
     if (!user || isStarting || inFlight || !pending) return;
     inFlight = true;
@@ -64,7 +91,12 @@
     const writingRevision = revision;
     pending = null;
     status('保存中…');
-    const { error } = await client.from('user_libraries').upsert({ user_id: user.id, library: item, updated_at: new Date().toISOString() }, { onConflict: 'user_id' });
+    let toWrite = item;
+    try {
+      const latest = await retrieve();
+      toWrite = mergeLibraries(base, latest, item);
+    } catch { /* 最新取得に失敗したら従来通りこの端末の内容で保存 */ }
+    const { error } = await client.from('user_libraries').upsert({ user_id: user.id, library: toWrite, updated_at: new Date().toISOString() }, { onConflict: 'user_id' });
     inFlight = false;
     if (error) {
       pending = pending || item;
@@ -72,7 +104,11 @@
       console.error('Cloud save error:', error);
     } else {
       savedRevision = writingRevision;
+      base = structuredClone(toWrite);
       status('同期済み');
+      if (JSON.stringify(toWrite) !== JSON.stringify(item)) {
+        try { boot(toWrite); status('他の端末の変更を取り込みました'); } catch {}
+      }
     }
     if (pending && !error) schedule();
   }
