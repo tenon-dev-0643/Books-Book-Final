@@ -258,8 +258,18 @@ async function fetchGoogleCover(registeredTitle, volume) {
     if (volume && volText === String(volume)) return url.replace(/^http:/, "https:");
     if (volNum && (!earliest || volNum < earliest.volNum)) earliest = { volNum, url };
   }
+  if (volume) return ""; /* 巻を指定されたら、その巻の表紙だけを返す（他巻で代替しない） */
   const chosen = earliest?.url || fallback;
   return chosen ? chosen.replace(/^http:/, "https:") : "";
+}
+/* シリーズ表紙の決定: 1巻の表紙を正とする。
+   1巻の発売予定に表紙があればそれを、無ければ作品自体の表紙を使う */
+function seriesCoverUrl(t) {
+  if (!t) return "";
+  const rels = state.releases.filter((r) => r.titleId === t.id && r.thumbnailUrl);
+  const vol1 = rels.find((r) => String(r.volume) === "1");
+  if (vol1) return vol1.thumbnailUrl;
+  return t.thumbnailUrl || "";
 }
 function coverDue(checkedAt) { return !checkedAt || Date.now() - checkedAt > COVER_RETRY_MS; }
 async function ensureTitleCover(title) {
@@ -308,6 +318,27 @@ async function ensureTitleCover(title) {
     if (url !== null) coverAttempts.delete(key);
   }
 }
+/* シリーズ表紙の修復: 作品表紙が1巻でない（または出所不明の）場合、1巻の表紙を取り直す */
+async function ensureSeriesCover(title) {
+  if (!title || !title.thumbnailUrl) return;
+  if (title.thumbnailVolume === "1") return;
+  const key = "s:" + title.id;
+  if (coverAttempts.has(key) || !coverDue(title.seriesCoverCheckedAt)) return;
+  if (seriesCoverUrl(title) !== title.thumbnailUrl) return; /* 1巻の発売予定表紙で表示できている */
+  coverAttempts.add(key);
+  try {
+    const url = await fetchGoogleCover(title, "1");
+    title.seriesCoverCheckedAt = Date.now();
+    if (url) {
+      title.thumbnailUrl = url;
+      title.thumbnailVolume = "1";
+      save(); renderLibrary(); renderHome();
+    } else {
+      save();
+    }
+  } catch { /* 取得失敗時は次回に任せる */ }
+  finally { coverAttempts.delete(key); }
+}
 /* release の null チェックを先に行う */
 async function ensureReleaseCover(release) {
   if (!release || release.thumbnailUrl || coverAttempts.has("r:" + release.id) || !coverDue(release.thumbnailCheckedAt)) return;
@@ -322,6 +353,7 @@ async function ensureReleaseCover(release) {
       release.thumbnailUrl = url;
       release.thumbnailCheckedAt = Date.now();
       save(); renderHome(); renderLibrary();
+      if (state.currentTitleId === release.titleId && $("#view-detail").classList.contains("is-active")) openDetail(release.titleId);
     } else if (url === "") {
       release.thumbnailCheckedAt = Date.now();
       save();
@@ -645,6 +677,7 @@ function renderHome() {
   els.noticeList.replaceChildren(...(notices.length
     ? notices.map((r) => releaseRow(r))
     : [el(`<div class="empty-state"><span>${state.noticeDays}日以内に発売される作品はありません。</span></div>`)]));
+  upcoming.forEach((r) => ensureReleaseCover(r));
 }
 function releaseRow(r) {
   const t = titleFor(r.titleId);
@@ -681,7 +714,7 @@ function renderLibrary() {
     const next = nextDate ? state.releases.find((r) => r.titleId === t.id && r.date === nextDate) : null;
     const count = state.releases.filter((r) => r.titleId === t.id).length;
     const card = el(`<button type="button" class="shelf-card">
-      <span class="shelf-cover">${coverHTML(next?.thumbnailUrl || t.thumbnailUrl, t.name)}
+      <span class="shelf-cover">${coverHTML(seriesCoverUrl(t), t.name)}
         ${nextDate ? `<span class="chip ${urgencyClass(nextDate)} shelf-badge">${esc(daysLabel(nextDate))}</span>`
                    : `<span class="chip shelf-badge">次巻未確認</span>`}
       </span>
@@ -694,6 +727,7 @@ function renderLibrary() {
   }));
   matched.forEach((t) => {
     ensureTitleCover(t);
+    ensureSeriesCover(t);
     const nd = nextReleaseDateFor(t.id);
     const nr = nd ? state.releases.find((r) => r.titleId === t.id && r.date === nd) : null;
     if (nr) ensureReleaseCover(nr);
@@ -715,7 +749,7 @@ function openDetail(titleId) {
   const rels = sortedReleases().filter((r) => r.titleId === titleId);
   const body = els.detailBody;
   body.replaceChildren(el(`<div>
-    <div class="detail-head">${coverHTML(t.thumbnailUrl, t.name)}
+    <div class="detail-head">${coverHTML(seriesCoverUrl(t), t.name)}
       <div><h1 class="view-title" style="margin:0">${esc(t.name)}</h1>
       <p class="row-sub">${esc(t.author || "")}</p>
       <div class="detail-actions">
@@ -743,7 +777,7 @@ function openDetail(titleId) {
   if (headCover && t.thumbnailUrl) {
     headCover.classList.add("zoomable");
     headCover.title = "タップで拡大";
-    headCover.addEventListener("click", () => openLightbox(t.thumbnailUrl, t, (rels.find((r) => r.isbn) || {}).isbn || ""));
+    headCover.addEventListener("click", () => openLightbox(seriesCoverUrl(t), t, (rels.find((r) => r.isbn) || {}).isbn || ""));
   }
   const list = $("#detailReleases");
   list.replaceChildren(...(rels.length ? rels.map((r) => {
@@ -762,6 +796,7 @@ function openDetail(titleId) {
     });
     return row;
   }) : [el(`<div class="empty-state"><span>発売予定はまだありません。下のフォームか「新刊候補を取得」から追加できます。</span></div>`)]));
+  rels.forEach((r) => ensureReleaseCover(r));
   /* 修正1: 残っている候補を描画し直す */
   renderCandidateCards($("#detailCandidates"), titleId);
   $("#detailBack").onclick = () => { switchTab("library"); renderLibrary(); };
@@ -843,7 +878,7 @@ function importCandidate(candidateId) {
       memo: c.memo, price: c.price || null, isbn: c.isbn || "", sourceId: c.sourceId,
       thumbnailUrl: c.thumbnail || "", thumbnailConfirmed: Boolean(c.thumbnail) });
     const t = titleFor(c.titleId);
-    if (t && !t.thumbnailUrl && c.thumbnail) t.thumbnailUrl = c.thumbnail;
+    if (t && !t.thumbnailUrl && c.thumbnail && String(c.volume) === "1") { t.thumbnailUrl = c.thumbnail; t.thumbnailVolume = "1"; }
   }
   state.candidates = state.candidates.filter((x) => x.id !== candidateId);
   state.calendarDate = dateOnly(c.date);
@@ -985,7 +1020,7 @@ async function findAltCoverRecord(title, currentUrl, known) {
       const nt = normalizeText(info.title || ""), nname = normalizeText(title.name);
       const itemVol = extractVolume(info.title || "", title.name);
       const titleOk = nt === nname || nt.startsWith(nname) || Boolean(itemVol);
-      const volOk = !vol0 || !itemVol || itemVol === vol0;
+      const volOk = vol0 ? (!itemVol || itemVol === vol0) : (!itemVol || itemVol === "1");
       const authorOk = !title.author || !(info.authors || []).length
         || (info.authors || []).some((a) => normalizeText(a).includes(normalizeText(title.author)) || normalizeText(title.author).includes(normalizeText(a)));
       if (titleOk && volOk && authorOk) { seen.add(item.id); candidates.push(item.id); }
