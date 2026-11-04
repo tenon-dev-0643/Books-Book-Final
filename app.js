@@ -773,7 +773,9 @@ function openDetail(titleId) {
   const t = titleFor(titleId); if (!t) return;
   closeDay(); /* 修正2: 日別ポップアップが開いていたら閉じる */
   state.currentTitleId = titleId;
+  const enteringDetail = !$("#view-detail").classList.contains("is-active");
   document.querySelectorAll(".view").forEach((v) => v.classList.toggle("is-active", v.id === "view-detail"));
+  if (enteringDetail) { $("#main").scrollTop = 0; window.scrollTo({ top: 0 }); }
   document.querySelectorAll(".tab").forEach((b) => b.classList.toggle("is-active", b.dataset.tab === "library"));
   const rels = sortedReleases().filter((r) => r.titleId === titleId);
   const body = els.detailBody;
@@ -1492,6 +1494,53 @@ function bootApp(cloudData) {
 }
 if (window.BooksAuth?.start) window.BooksAuth.start(bootApp);
 else bootApp(null); /* 認証が使えない環境ではローカルデータで起動 */
+/* ---------- 手動更新（クラウドから最新を取得） ---------- */
+let cloudRefreshing = false;
+async function refreshFromCloud() {
+  if (cloudRefreshing) return;
+  if (!window.BooksAuth?.refresh) { showToast("この環境ではクラウド同期が無効です"); return; }
+  cloudRefreshing = true;
+  const btn = $("#railRefresh");
+  if (btn) btn.classList.add("is-spinning");
+  try {
+    const res = await window.BooksAuth.refresh(() => ({
+      titles: state.titles, releases: state.releases, noticeDays: state.noticeDays,
+    }));
+    if (res === "ok") showToast("最新の状態に更新しました");
+    else if (res === "noauth") showToast("ログインが必要です");
+    else if (res === "error") showToast("更新できませんでした。通信環境を確認してください");
+  } finally {
+    cloudRefreshing = false;
+    if (btn) btn.classList.remove("is-spinning");
+  }
+}
+$("#railRefresh")?.addEventListener("click", refreshFromCloud);
+/* プル・トゥ・リフレッシュ: 先頭までスクロールした状態で引っ張ったら更新 */
+(() => {
+  const main = $("#main");
+  const indicator = $("#ptrIndicator");
+  if (!main || !indicator) return;
+  let startY = null, pulling = false;
+  main.addEventListener("touchstart", (e) => {
+    startY = window.scrollY <= 0 && $("#lightbox").hidden && $("#sheetOverlay").hidden ? e.touches[0].clientY : null;
+    pulling = false;
+  }, { passive: true });
+  main.addEventListener("touchmove", (e) => {
+    if (startY === null) return;
+    const dy = e.touches[0].clientY - startY;
+    if (dy > 12 && window.scrollY <= 0) {
+      if (e.cancelable) e.preventDefault();
+      pulling = dy > 70;
+      indicator.hidden = false;
+      indicator.textContent = pulling ? "↻ 離すと更新" : "↓ 引っ張って更新";
+    }
+  }, { passive: false });
+  main.addEventListener("touchend", () => {
+    if (pulling) refreshFromCloud();
+    indicator.hidden = true;
+    startY = null; pulling = false;
+  });
+})();
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible") { render(); checkNotifications({ automatic: true }); }
 });

@@ -54,6 +54,9 @@
       <button class="tab" data-tab="settings" type="button">
         <span class="tab-icon" aria-hidden="true">⚙</span><span>設定</span>
       </button>
+      <button class="rail-refresh" id="railRefresh" type="button" aria-label="最新の状態に更新">
+        <span class="tab-icon" aria-hidden="true">↻</span><span>更新</span>
+      </button>
     </nav>
     <button class="rail-add" id="railAdd" type="button">＋ 作品を追加</button>
   </header>
@@ -187,6 +190,7 @@
       </div>
     </section>
   </main>
+  <div class="ptr-indicator" id="ptrIndicator" hidden>↓ 引っ張って更新</div>
 </div>
 
 <!-- 親指ゾーンの主アクション（モバイル） -->

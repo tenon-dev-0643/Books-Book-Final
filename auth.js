@@ -123,6 +123,26 @@
     status('未同期の変更あり');
     schedule();
   }
+  /* 手動更新: 未保存分を送ってから最新を取得し、3方向マージして再描画する */
+  async function refresh(getLocal) {
+    if (!user) return 'noauth';
+    if (inFlight || isStarting) return 'busy';
+    try {
+      if (pending) await flush();
+      const latest = await retrieve();
+      if (!latest) { status('同期済み'); return 'ok'; }
+      const local = typeof getLocal === 'function' ? getLocal() : null;
+      const merged = local ? mergeLibraries(base, latest, local) : latest;
+      base = structuredClone(merged);
+      boot(merged);
+      if (JSON.stringify(merged) !== JSON.stringify(latest)) queueSave(merged);
+      status('同期済み');
+      return 'ok';
+    } catch (e) {
+      status('更新に失敗しました');
+      return 'error';
+    }
+  }
   async function start(onBoot) {
     boot = onBoot;
     if (!conf.supabaseUrl || !conf.supabasePublishableKey || !window.supabase) {
@@ -159,5 +179,5 @@
   });
   document.getElementById('authLogout').addEventListener('click', signOut);
   window.addEventListener('online', () => { if (pending) schedule(); });
-  window.BooksAuth = { start, queueSave };
+  window.BooksAuth = { start, queueSave, refresh };
 })();
