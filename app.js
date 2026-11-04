@@ -915,19 +915,29 @@ function hiResCoverUrl(url) {
   if (!u.includes("books.google")) return u;
   return u.replace(/([?&])zoom=\d/, "$1zoom=0").replace(/&edge=curl/g, "");
 }
+let lightboxToken = 0;
 function openLightbox(url) {
   if (!url) return;
   const img = $("#lightboxImg");
   const original = String(url).replace(/^http:/, "https:");
-  const hi = hiResCoverUrl(original);
-  img.onerror = () => { /* 大きい版が読めなければ元の画像に戻す */
-    img.onerror = null;
-    if (img.src !== original) img.src = original;
-  };
-  img.src = hi;
+  const token = ++lightboxToken;
+  img.onerror = null;
+  img.src = original; /* まず確実に存在する通常版を表示する */
   $("#lightbox").hidden = false;
+  const hi = hiResCoverUrl(original);
+  if (hi === original) return;
+  /* 大きい版は裏で読み、本物に大きい場合だけ差し替える。
+     Google Books は大きい版が無い本だと「image not available」の
+     プレースホルダー画像を正常な画像として返すため、エラーでは検知できない */
+  const probe = new Image();
+  probe.onload = () => {
+    if (token !== lightboxToken || $("#lightbox").hidden) return;
+    if (probe.naturalWidth > 200 && probe.naturalWidth > img.naturalWidth) img.src = hi;
+  };
+  probe.src = hi;
 }
 function closeLightbox() {
+  lightboxToken++;
   $("#lightbox").hidden = true;
   $("#lightboxImg").removeAttribute("src");
 }
