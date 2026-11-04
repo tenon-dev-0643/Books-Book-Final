@@ -812,14 +812,21 @@ function openDetail(titleId) {
   }
   const list = $("#detailReleases");
   list.replaceChildren(...(rels.length ? rels.map((r) => {
-    const row = el(`<div class="row-card" style="cursor:default">
+    const isReleased = daysUntil(r.date) <= 0;
+    const row = el(`<div class="row-card${r.purchased ? " is-purchased" : ""}" style="cursor:default">
       ${coverHTML(r.thumbnailUrl || t.thumbnailUrl, t.name)}
       <span class="row-main"><span class="row-title">${esc(r.volume)}巻</span><br>
       <span class="row-sub">${esc(fmtDate.format(dateOnly(r.date)))} ・ ${esc(daysLabel(r.date))}${r.memo ? " ・ " + esc(r.memo) : ""}${r.price ? " ・ " + esc(formatPrice(r.price)) : ""}</span></span>
-      <button class="mini-button danger" type="button">削除</button></div>`);
+      ${isReleased ? `<button class="mini-button buy-toggle${r.purchased ? " is-on" : ""}" type="button">${r.purchased ? "購入済み" : "購入した"}</button>` : ""}
+      <button class="mini-button danger release-delete" type="button">削除</button></div>`);
     const rowCover = row.querySelector("img");
     if (rowCover) rowCover.addEventListener("click", () => openLightbox(r.thumbnailUrl || t.thumbnailUrl, t, r.isbn || ""));
-    row.querySelector("button").addEventListener("click", () => {
+    const buyBtn = row.querySelector(".buy-toggle");
+    if (buyBtn) buyBtn.addEventListener("click", () => {
+      r.purchased = !r.purchased;
+      save(); openDetail(titleId);
+    });
+    row.querySelector(".release-delete").addEventListener("click", () => {
       const snapshot = { ...r };
       state.releases = state.releases.filter((x) => x.id !== r.id);
       showToast("発売予定を削除しました", () => { state.releases.push(snapshot); });

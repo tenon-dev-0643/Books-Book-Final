@@ -317,3 +317,7 @@ body{overscroll-behavior-y:none}
   .rail-refresh{flex-direction:row;justify-content:flex-start;gap:10px;font-size:1rem;
     padding:0 12px;border-radius:12px;min-height:52px}
 }
+
+/* ---------- 購入フラグ ---------- */
+.buy-toggle.is-on{background:var(--accent);color:var(--accent-ink);border-color:transparent;font-weight:700}
+.row-card.is-purchased{border-color:var(--accent)}
