@@ -311,11 +311,14 @@ async function ensureTitleCover(title) {
 
     if (vol1Isbn) {
       url = await fetchOpenBdCover(vol1Isbn);
-      if (!url) url = await fetchHanmotoCover(vol1Isbn);
     }
 
     if (!url) {
       url = await fetchGoogleCover(title, "");
+    }
+
+    if (!url && vol1Isbn) {
+      url = await fetchHanmotoCover(vol1Isbn);
     }
 
     if (url) {
@@ -350,11 +353,9 @@ async function ensureSeriesCover(title) {
       (r) => r.titleId === title.id && r.isbn && String(r.volume) === "1"
     );
     let url = "";
-    if (vol1) {
-      url = await fetchOpenBdCover(vol1.isbn);
-      if (!url) url = await fetchHanmotoCover(vol1.isbn);
-    }
+    if (vol1) url = await fetchOpenBdCover(vol1.isbn);
     if (!url) url = await fetchGoogleCover(title, "1");
+    if (!url && vol1) url = await fetchHanmotoCover(vol1.isbn);
     title.seriesCoverCheckedAt = Date.now();
     if (url) {
       title.thumbnailUrl = url;
@@ -375,8 +376,8 @@ async function ensureReleaseCover(release) {
   let url = "";
   try {
     url = await fetchOpenBdCover(release.isbn);
-    if (!url) url = await fetchHanmotoCover(release.isbn);
     if (!url && title) url = await fetchGoogleCover(title, release.volume);
+    if (!url) url = await fetchHanmotoCover(release.isbn);
     if (url) {
       release.thumbnailUrl = url;
       release.thumbnailCheckedAt = Date.now();
@@ -1097,15 +1098,22 @@ function openLightbox(url, title, isbnHint) {
       if (s) { show(title.hiCoverUrl); return; }
     }
     const hi = hiResCoverUrl(original);
-    if (hi === original) { show(original); return; }
-    const [hiSize, origSize] = await Promise.all([probeImageSize(hi, 6000), probeImageSize(original, 6000)]);
-    if (token !== lightboxToken) return;
-    if (hiSize && !isPlaceholderSize(hiSize)) { show(hi); return; }
+    let origSize = null;
+    if (hi !== original) {
+      const [hiSize, os] = await Promise.all([probeImageSize(hi, 6000), probeImageSize(original, 6000)]);
+      origSize = os;
+      if (token !== lightboxToken) return;
+      if (hiSize && !isPlaceholderSize(hiSize)) { show(hi); return; }
+    } else if (!isbnHint || !title) { show(original); return; }
+    else {
+      origSize = await probeImageSize(original, 6000);
+      if (token !== lightboxToken) return;
+    }
     /* 現在のレコードに大きい表紙が無い → 代替を探す（完了した場合のみ24時間は再探索しない） */
     if (!title) { show(original); return; }
     const searchedAt = Number(title.coverSearchAt || 0);
     if (Date.now() - searchedAt <= 24 * 3600 * 1000) { show(original); return; }
-    const id0 = googleIdFromUrl(original);
+    let id0 = googleIdFromUrl(original);
     let isbn = isbnHint || "", vol0 = "", completed = true, recordKnown = null;
     if (id0 && !isbn) {
       try {
@@ -1114,6 +1122,25 @@ function openLightbox(url, title, isbnHint) {
         const ids = Array.isArray(info.industryIdentifiers) ? info.industryIdentifiers : [];
         isbn = (ids.find((x) => x.type === "ISBN_13") || ids.find((x) => x.type === "ISBN_10") || {}).identifier || "";
         recordKnown = { isbn, vol0 };
+      } catch { completed = false; }
+    }
+    /* 元画像が Google 以外（hanmoto 等）でも、ISBN があれば Google の大きい表紙を探す */
+    if (!id0 && isbn) {
+      try {
+        const data = await googleVolumeSearch(`isbn:${toIsbn13(isbn) || isbn}`);
+        const item = (Array.isArray(data.items) ? data.items : []).find((x) => x.id && !isChapterSaleItem(x.volumeInfo || {}));
+        if (item) {
+          const sz = await probeImageSize(googleCoverUrl(item.id, 0), 6000);
+          if (token !== lightboxToken) return;
+          if (sz && !isPlaceholderSize(sz) && (!origSize || sz.w > origSize.w)) {
+            title.hiCoverUrl = googleCoverUrl(item.id, 0);
+            title.hiCoverIsbn = toIsbn13(isbn) || isbn;
+            save();
+            show(title.hiCoverUrl);
+            return;
+          }
+          id0 = item.id; /* 別レコード探索の起点にする */
+        }
       } catch { completed = false; }
     }
     /* 版元ドットコム（hanmoto）: ISBN で書影を引く。Google の通常版より大きい場合だけ採用 */
@@ -1126,7 +1153,7 @@ function openLightbox(url, title, isbnHint) {
     }
     /* Google の別レコード探索（見つかれば表紙ごと付け替え） */
     if (id0) {
-      const alt = await findAltCoverRecord(title, original, recordKnown).catch(() => ({ winner: null, completed: false }));
+      const alt = await findAltCoverRecord(title, googleIdFromUrl(original) ? original : googleCoverUrl(id0, 1), recordKnown).catch(() => ({ winner: null, completed: false }));
       if (token !== lightboxToken) return;
       if (alt.winner) {
         title.thumbnailUrl = alt.winner.thumbUrl;
