@@ -969,7 +969,6 @@ function closeSheet() {
 $("#fabAdd").addEventListener("click", openSheet);
 $("#railAdd").addEventListener("click", openSheet);
 $("#sheetClose").addEventListener("click", closeSheet);
-$("#sheetDone").addEventListener("click", closeSheet);
 $("#sheetOverlay").addEventListener("click", (e) => { if (e.target.id === "sheetOverlay") closeSheet(); });
 function closeDay() { $("#dayOverlay").hidden = true; }
 $("#dayClose").addEventListener("click", closeDay);
@@ -1267,18 +1266,10 @@ $("#titleForm").addEventListener("submit", (e) => {
     state.titles.push(t);
     showToast(`「${name}」を登録しました`);
   } else { showToast(`「${t.name}」は登録済みです`); }
-  state.sheetTitleId = t.id;
   save();
   ensureTitleCover(t);
-  $("#sheetAfterAdd").hidden = false;
-  $("#sheetSuccess").textContent = `「${t.name}」${t.author ? ` / ${t.author}` : ""} — 続けて新刊候補を取得してください。`;
   render();
-  renderCandidates();
-  $("#sheetAfterAdd").scrollIntoView({ behavior: "smooth", block: "nearest" });
-});
-$("#syncButton").addEventListener("click", () => {
-  const t = titleFor(state.sheetTitleId);
-  if (t && !state.syncing) syncCandidatesFor(t);
+  closeSheet(); /* 追加後は「登録しました」のトーストだけを残す */
 });
 
 /* ---------- 一括新刊チェック ---------- */
