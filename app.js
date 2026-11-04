@@ -922,24 +922,35 @@ function openLightbox(url) {
   const original = String(url).replace(/^http:/, "https:");
   const token = ++lightboxToken;
   img.onerror = null;
-  img.src = original; /* まず確実に存在する通常版を表示する */
+  img.removeAttribute("src");
+  img.style.opacity = "0"; /* 大きい版の判定が終わるまで表示しない */
   $("#lightbox").hidden = false;
+  const show = (srcToShow) => {
+    if (token !== lightboxToken) return;
+    img.src = srcToShow;
+    img.style.opacity = "1";
+  };
   const hi = hiResCoverUrl(original);
-  if (hi === original) return;
-  /* 大きい版は裏で読み、本物に大きい場合だけ差し替える。
-     Google Books は大きい版が無い本だと「image not available」の
-     プレースホルダー画像を正常な画像として返すため、エラーでは検知できない */
+  if (hi === original) { show(original); return; }
+  /* 元画像は裏で読み込んでおき、大きい版がダメな場合の受け先にする */
+  const origProbe = new Image();
+  origProbe.src = original;
   const probe = new Image();
   probe.onload = () => {
-    if (token !== lightboxToken || $("#lightbox").hidden) return;
-    if (probe.naturalWidth > 200 && probe.naturalWidth > img.naturalWidth) img.src = hi;
+    /* Google Books の「image not available」プレースホルダーは zoom=0 で 575x750 固定。
+       実物の表紙と寸法で見分け、プレースホルダーなら通常版を表示する */
+    if (probe.naturalWidth === 575 && probe.naturalHeight === 750) show(original);
+    else show(hi);
   };
+  probe.onerror = () => show(original);
   probe.src = hi;
 }
 function closeLightbox() {
   lightboxToken++;
   $("#lightbox").hidden = true;
-  $("#lightboxImg").removeAttribute("src");
+  const img = $("#lightboxImg");
+  img.removeAttribute("src");
+  img.style.opacity = "0";
 }
 $("#lightboxClose").addEventListener("click", closeLightbox);
 $("#lightbox").addEventListener("click", (e) => { if (e.target.id === "lightbox") closeLightbox(); });
