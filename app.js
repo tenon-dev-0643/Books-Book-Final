@@ -272,6 +272,14 @@ function seriesCoverUrl(t) {
   return t.thumbnailUrl || "";
 }
 function coverDue(checkedAt) { return !checkedAt || Date.now() - checkedAt > COVER_RETRY_MS; }
+/* 版元ドットコム（hanmoto）の書影を ISBN から取得（画像が読めた場合のみ URL を返す） */
+async function fetchHanmotoCover(isbn) {
+  const isbn13 = toIsbn13(isbn);
+  if (!isbn13) return "";
+  const url = hanmotoCoverUrl(isbn13);
+  const size = await probeImageSize(url, 5000);
+  return size ? url : "";
+}
 async function ensureTitleCover(title) {
   if (
     !title ||
@@ -287,12 +295,13 @@ async function ensureTitleCover(title) {
 
   let url = "";
   try {
-    const withIsbn = state.releases.find(
-      (r) => r.titleId === title.id && r.isbn
-    );
+    const vol1Isbn = (state.releases.find(
+      (r) => r.titleId === title.id && r.isbn && String(r.volume) === "1"
+    ) || {}).isbn || "";
 
-    if (withIsbn) {
-      url = await fetchOpenBdCover(withIsbn.isbn);
+    if (vol1Isbn) {
+      url = await fetchOpenBdCover(vol1Isbn);
+      if (!url) url = await fetchHanmotoCover(vol1Isbn);
     }
 
     if (!url) {
@@ -327,7 +336,15 @@ async function ensureSeriesCover(title) {
   if (seriesCoverUrl(title) !== title.thumbnailUrl) return; /* 1巻の発売予定表紙で表示できている */
   coverAttempts.add(key);
   try {
-    const url = await fetchGoogleCover(title, "1");
+    const vol1 = state.releases.find(
+      (r) => r.titleId === title.id && r.isbn && String(r.volume) === "1"
+    );
+    let url = "";
+    if (vol1) {
+      url = await fetchOpenBdCover(vol1.isbn);
+      if (!url) url = await fetchHanmotoCover(vol1.isbn);
+    }
+    if (!url) url = await fetchGoogleCover(title, "1");
     title.seriesCoverCheckedAt = Date.now();
     if (url) {
       title.thumbnailUrl = url;
@@ -348,6 +365,7 @@ async function ensureReleaseCover(release) {
   let url = "";
   try {
     url = await fetchOpenBdCover(release.isbn);
+    if (!url) url = await fetchHanmotoCover(release.isbn);
     if (!url && title) url = await fetchGoogleCover(title, release.volume);
     if (url) {
       release.thumbnailUrl = url;
@@ -777,7 +795,7 @@ function openDetail(titleId) {
   if (headCover && t.thumbnailUrl) {
     headCover.classList.add("zoomable");
     headCover.title = "タップで拡大";
-    headCover.addEventListener("click", () => openLightbox(seriesCoverUrl(t), t, (rels.find((r) => r.isbn) || {}).isbn || ""));
+    headCover.addEventListener("click", () => openLightbox(seriesCoverUrl(t), t, (rels.find((r) => r.isbn && String(r.volume) === "1") || rels.find((r) => r.isbn) || {}).isbn || ""));
   }
   const list = $("#detailReleases");
   list.replaceChildren(...(rels.length ? rels.map((r) => {
@@ -1062,7 +1080,7 @@ function openLightbox(url, title, isbnHint) {
   };
   (async () => {
     /* 前回見つけた大きい表紙（hanmoto 等）があればそれを優先 */
-    if (title?.hiCoverUrl) {
+    if (title?.hiCoverUrl && (!isbnHint || !title.hiCoverIsbn || toIsbn13(title.hiCoverIsbn) === toIsbn13(isbnHint))) {
       const s = await probeImageSize(title.hiCoverUrl, 5000);
       if (token !== lightboxToken) return;
       if (s) { show(title.hiCoverUrl); return; }
@@ -1110,6 +1128,7 @@ function openLightbox(url, title, isbnHint) {
     }
     if (hanmotoUrl) {
       title.hiCoverUrl = hanmotoUrl; /* 拡大表示用に保持（サムネイルは Google 側のまま） */
+      title.hiCoverIsbn = isbn13;
       save();
       show(hanmotoUrl);
       return;
