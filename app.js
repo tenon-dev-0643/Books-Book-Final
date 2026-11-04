@@ -1271,27 +1271,10 @@ $("#titleForm").addEventListener("submit", (e) => {
   save();
   ensureTitleCover(t);
   $("#sheetAfterAdd").hidden = false;
-  $("#sheetSuccess").textContent = `「${t.name}」${t.author ? ` / ${t.author}` : ""} — 続けて発売日を追加するか、候補を取得してください。`;
+  $("#sheetSuccess").textContent = `「${t.name}」${t.author ? ` / ${t.author}` : ""} — 続けて新刊候補を取得してください。`;
   render();
   renderCandidates();
   $("#sheetAfterAdd").scrollIntoView({ behavior: "smooth", block: "nearest" });
-});
-$("#releaseForm").addEventListener("submit", (e) => {
-  e.preventDefault();
-  const t = titleFor(state.sheetTitleId); if (!t) return;
-    const volume = $("#releaseVolume").value.trim();
-  const date = normalizeDate($("#releaseDate").value);
-  const rawPrice = $("#releasePrice").value.trim();
-  const priceAmount = rawPrice ? Number(rawPrice) : null;
-  if (!volume || !date || (rawPrice && (!Number.isFinite(priceAmount) || priceAmount < 0))) {
-    showToast("発売日・巻数・価格を確認してください"); return;
-  }
-  if (releaseExists({ titleId: t.id, volume, date })) { showToast("同じ巻数・発売日はすでに登録されています"); return; }
-  state.releases.push({ id: uid(), titleId: t.id, volume, date,
-    memo: $("#releaseMemo").value.trim(),
-    price: priceAmount ? { amount: priceAmount, currency: "JPY" } : null, isbn: "", sourceId: "", thumbnailUrl: "" });
-  e.target.reset();
-  showToast("発売予定を追加しました"); save(); render();
 });
 $("#syncButton").addEventListener("click", () => {
   const t = titleFor(state.sheetTitleId);
