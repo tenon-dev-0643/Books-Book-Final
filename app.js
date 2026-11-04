@@ -235,6 +235,15 @@ async function fetchOpenBdCover(isbn) {
     return item?.summary?.cover || "";
   } catch { return ""; }
 }
+/* 話売り・分冊版の判定（単行本だけを取得するための除外フィルタ）。
+   タイトル・サブタイトルの表記と、ページ数（単行本より大幅に少ない）で判定する */
+function isChapterSaleItem(info) {
+  const text = `${info?.title || ""} ${info?.subtitle || ""}`;
+  if (/話売り|分冊版/.test(text)) return true;
+  const pc = Number(info?.pageCount) || 0;
+  if (pc > 0 && pc < 100) return true;
+  return false;
+}
 async function fetchGoogleCover(registeredTitle, volume) {
   const query = [`intitle:${registeredTitle.name}`];
   if (registeredTitle.author) query.push(`inauthor:${registeredTitle.author}`);
@@ -250,6 +259,7 @@ async function fetchGoogleCover(registeredTitle, volume) {
   let earliest = null, fallback = "";
   for (const item of (Array.isArray(data.items) ? data.items : [])) {
     const info = item.volumeInfo || {};
+    if (isChapterSaleItem(info)) continue; /* 話売り・分冊版は単行本ではないので除外 */
     const url = info.imageLinks?.thumbnail || info.imageLinks?.smallThumbnail || "";
     if (!url) continue;
     if (!fallback) fallback = url;
@@ -1034,6 +1044,7 @@ async function findAltCoverRecord(title, currentUrl, known) {
     for (const item of (Array.isArray(data.items) ? data.items : [])) {
       if (!item.id || seen.has(item.id)) continue;
       const info = item.volumeInfo || {};
+      if (isChapterSaleItem(info)) continue;
       if (!info.imageLinks?.thumbnail && !info.imageLinks?.smallThumbnail) continue;
       const nt = normalizeText(info.title || ""), nname = normalizeText(title.name);
       const itemVol = extractVolume(info.title || "", title.name);
@@ -1080,7 +1091,7 @@ function openLightbox(url, title, isbnHint) {
   };
   (async () => {
     /* 前回見つけた大きい表紙（hanmoto 等）があればそれを優先 */
-    if (title?.hiCoverUrl && (!isbnHint || !title.hiCoverIsbn || toIsbn13(title.hiCoverIsbn) === toIsbn13(isbnHint))) {
+    if (title?.hiCoverUrl && isbnHint && title.hiCoverIsbn && toIsbn13(title.hiCoverIsbn) === toIsbn13(isbnHint)) {
       const s = await probeImageSize(title.hiCoverUrl, 5000);
       if (token !== lightboxToken) return;
       if (s) { show(title.hiCoverUrl); return; }
