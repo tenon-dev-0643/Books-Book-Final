@@ -743,7 +743,7 @@ function openDetail(titleId) {
   if (headCover && t.thumbnailUrl) {
     headCover.classList.add("zoomable");
     headCover.title = "タップで拡大";
-    headCover.addEventListener("click", () => openLightbox(t.thumbnailUrl, t));
+    headCover.addEventListener("click", () => openLightbox(t.thumbnailUrl, t, (rels.find((r) => r.isbn) || {}).isbn || ""));
   }
   const list = $("#detailReleases");
   list.replaceChildren(...(rels.length ? rels.map((r) => {
@@ -753,7 +753,7 @@ function openDetail(titleId) {
       <span class="row-sub">${esc(fmtDate.format(dateOnly(r.date)))} ・ ${esc(daysLabel(r.date))}${r.memo ? " ・ " + esc(r.memo) : ""}${r.price ? " ・ " + esc(formatPrice(r.price)) : ""}</span></span>
       <button class="mini-button danger" type="button">削除</button></div>`);
     const rowCover = row.querySelector("img");
-    if (rowCover) rowCover.addEventListener("click", () => openLightbox(r.thumbnailUrl || t.thumbnailUrl, t));
+    if (rowCover) rowCover.addEventListener("click", () => openLightbox(r.thumbnailUrl || t.thumbnailUrl, t, r.isbn || ""));
     row.querySelector("button").addEventListener("click", () => {
       const snapshot = { ...r };
       state.releases = state.releases.filter((x) => x.id !== r.id);
@@ -953,17 +953,20 @@ async function googleVolumeSearch(q) {
   const gk = usableGoogleKey(); if (gk) params.set("key", gk);
   return googleBookFetch(`https://www.googleapis.com/books/v1/volumes?${params.toString()}`);
 }
-async function findAltCoverRecord(title, currentUrl) {
+async function findAltCoverRecord(title, currentUrl, known) {
   const id0 = googleIdFromUrl(currentUrl);
-  if (!id0 || !title) return null;
+  if (!id0 || !title) return { winner: null, completed: false };
   const deadline = Date.now() + 9000;
-  let vol0 = "", isbn = "";
-  try {
-    const info = (await googleVolumeById(id0))?.volumeInfo || {};
-    vol0 = extractVolume(info.title || "", title.name);
-    const ids = Array.isArray(info.industryIdentifiers) ? info.industryIdentifiers : [];
-    isbn = (ids.find((x) => x.type === "ISBN_13") || ids.find((x) => x.type === "ISBN_10") || {}).identifier || "";
-  } catch { /* レコード情報が取れなくても書名検索で続行 */ }
+  let vol0 = known?.vol0 || "", isbn = known?.isbn || "";
+  let completed = true;
+  if (!known) {
+    try {
+      const info = (await googleVolumeById(id0))?.volumeInfo || {};
+      vol0 = extractVolume(info.title || "", title.name);
+      const ids = Array.isArray(info.industryIdentifiers) ? info.industryIdentifiers : [];
+      isbn = (ids.find((x) => x.type === "ISBN_13") || ids.find((x) => x.type === "ISBN_10") || {}).identifier || "";
+    } catch { completed = false; /* レコード情報が取れなくても書名検索で続行 */ }
+  }
   const queries = [];
   if (isbn) queries.push(`isbn:${isbn}`);
   const titleQuery = [`intitle:${title.name}`];
@@ -974,7 +977,7 @@ async function findAltCoverRecord(title, currentUrl) {
   for (const q of queries) {
     if (candidates.length >= 6 || Date.now() > deadline) break;
     let data;
-    try { data = await googleVolumeSearch(q); } catch { continue; }
+    try { data = await googleVolumeSearch(q); } catch { completed = false; continue; }
     for (const item of (Array.isArray(data.items) ? data.items : [])) {
       if (!item.id || seen.has(item.id)) continue;
       const info = item.volumeInfo || {};
@@ -991,11 +994,24 @@ async function findAltCoverRecord(title, currentUrl) {
   for (const id of candidates.slice(0, 6)) {
     if (Date.now() > deadline) break;
     const size = await probeImageSize(googleCoverUrl(id, 0));
-    if (size && !isPlaceholderSize(size)) return { thumbUrl: googleCoverUrl(id, 1), hiUrl: googleCoverUrl(id, 0) };
+    if (size && !isPlaceholderSize(size)) return { winner: { thumbUrl: googleCoverUrl(id, 1), hiUrl: googleCoverUrl(id, 0) }, completed };
   }
-  return null;
+  return { winner: null, completed };
 }
-function openLightbox(url, title) {
+/* ISBN の正規化（10桁は13桁に変換）と版元ドットコム（hanmoto）の書影URL */
+function toIsbn13(isbn) {
+  const d = String(isbn || "").replace(/[^0-9Xx]/g, "").toUpperCase();
+  if (/^97[89]\d{10}$/.test(d)) return d;
+  if (/^\d{9}[\dX]$/.test(d)) {
+    const base = "978" + d.slice(0, 9);
+    let sum = 0;
+    for (let i = 0; i < 12; i++) sum += Number(base[i]) * (i % 2 ? 3 : 1);
+    return base + String((10 - (sum % 10)) % 10);
+  }
+  return "";
+}
+const hanmotoCoverUrl = (isbn13) => `https://img.hanmoto.com/bd/img/${isbn13}.jpg`;
+function openLightbox(url, title, isbnHint) {
   if (!url) return;
   const img = $("#lightboxImg");
   const original = String(url).replace(/^http:/, "https:");
@@ -1009,27 +1025,63 @@ function openLightbox(url, title) {
     img.src = srcToShow;
     img.style.opacity = "1";
   };
-  const hi = hiResCoverUrl(original);
-  if (hi === original) { show(original); return; }
-  /* 元画像は裏で読み込んでおき、大きい版がダメな場合の受け先にする */
-  const origProbe = new Image();
-  origProbe.src = original;
   (async () => {
-    const size = await probeImageSize(hi, 6000);
-    if (token !== lightboxToken) return;
-    if (size && !isPlaceholderSize(size)) { show(hi); return; }
-    /* 現在のレコードに大きい表紙が無い → 別レコードを探す（30日間は再探索しない） */
-    const checkedAt = Number(title?.coverAltCheckedAt || 0);
-    if (title && googleIdFromUrl(original) && Date.now() - checkedAt > 30 * 24 * 3600 * 1000) {
-      const alt = await findAltCoverRecord(title, original).catch(() => null);
+    /* 前回見つけた大きい表紙（hanmoto 等）があればそれを優先 */
+    if (title?.hiCoverUrl) {
+      const s = await probeImageSize(title.hiCoverUrl, 5000);
       if (token !== lightboxToken) return;
-      if (alt) {
-        title.thumbnailUrl = alt.thumbUrl; /* 良いレコードに付け替えて保存し、次回から直接使う */
+      if (s) { show(title.hiCoverUrl); return; }
+    }
+    const hi = hiResCoverUrl(original);
+    if (hi === original) { show(original); return; }
+    const [hiSize, origSize] = await Promise.all([probeImageSize(hi, 6000), probeImageSize(original, 6000)]);
+    if (token !== lightboxToken) return;
+    if (hiSize && !isPlaceholderSize(hiSize)) { show(hi); return; }
+    /* 現在のレコードに大きい表紙が無い → 代替を探す（完了した場合のみ24時間は再探索しない） */
+    if (!title) { show(original); return; }
+    const searchedAt = Number(title.coverSearchAt || 0);
+    if (Date.now() - searchedAt <= 24 * 3600 * 1000) { show(original); return; }
+    const id0 = googleIdFromUrl(original);
+    let isbn = isbnHint || "", vol0 = "", completed = true, recordKnown = null;
+    if (id0 && !isbn) {
+      try {
+        const info = (await googleVolumeById(id0))?.volumeInfo || {};
+        vol0 = extractVolume(info.title || "", title.name);
+        const ids = Array.isArray(info.industryIdentifiers) ? info.industryIdentifiers : [];
+        isbn = (ids.find((x) => x.type === "ISBN_13") || ids.find((x) => x.type === "ISBN_10") || {}).identifier || "";
+        recordKnown = { isbn, vol0 };
+      } catch { completed = false; }
+    }
+    /* 版元ドットコム（hanmoto）: ISBN で書影を引く。Google の通常版より大きい場合だけ採用 */
+    let hanmotoUrl = "";
+    const isbn13 = toIsbn13(isbn);
+    if (isbn13) {
+      const hs = await probeImageSize(hanmotoCoverUrl(isbn13), 5000);
+      if (token !== lightboxToken) return;
+      if (hs && hs.w >= 180 && (!origSize || hs.w > origSize.w)) hanmotoUrl = hanmotoCoverUrl(isbn13);
+    }
+    /* Google の別レコード探索（見つかれば表紙ごと付け替え） */
+    if (id0) {
+      const alt = await findAltCoverRecord(title, original, recordKnown).catch(() => ({ winner: null, completed: false }));
+      if (token !== lightboxToken) return;
+      if (alt.winner) {
+        title.thumbnailUrl = alt.winner.thumbUrl;
+        delete title.hiCoverUrl;
         save();
-        show(alt.hiUrl);
+        show(alt.winner.hiUrl);
         return;
       }
-      title.coverAltCheckedAt = Date.now();
+      if (!alt.completed) completed = false;
+    }
+    if (hanmotoUrl) {
+      title.hiCoverUrl = hanmotoUrl; /* 拡大表示用に保持（サムネイルは Google 側のまま） */
+      save();
+      show(hanmotoUrl);
+      return;
+    }
+    if (completed) {
+      title.coverSearchAt = Date.now();
+      delete title.coverAltCheckedAt;
       save();
     }
     show(original);
