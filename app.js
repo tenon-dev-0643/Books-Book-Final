@@ -743,7 +743,7 @@ function openDetail(titleId) {
   if (headCover && t.thumbnailUrl) {
     headCover.classList.add("zoomable");
     headCover.title = "タップで拡大";
-    headCover.addEventListener("click", () => openLightbox(t.thumbnailUrl));
+    headCover.addEventListener("click", () => openLightbox(t.thumbnailUrl, t));
   }
   const list = $("#detailReleases");
   list.replaceChildren(...(rels.length ? rels.map((r) => {
@@ -753,7 +753,7 @@ function openDetail(titleId) {
       <span class="row-sub">${esc(fmtDate.format(dateOnly(r.date)))} ・ ${esc(daysLabel(r.date))}${r.memo ? " ・ " + esc(r.memo) : ""}${r.price ? " ・ " + esc(formatPrice(r.price)) : ""}</span></span>
       <button class="mini-button danger" type="button">削除</button></div>`);
     const rowCover = row.querySelector("img");
-    if (rowCover) rowCover.addEventListener("click", () => openLightbox(r.thumbnailUrl || t.thumbnailUrl));
+    if (rowCover) rowCover.addEventListener("click", () => openLightbox(r.thumbnailUrl || t.thumbnailUrl, t));
     row.querySelector("button").addEventListener("click", () => {
       const snapshot = { ...r };
       state.releases = state.releases.filter((x) => x.id !== r.id);
@@ -916,7 +916,86 @@ function hiResCoverUrl(url) {
   return u.replace(/([?&])zoom=\d/, "$1zoom=0").replace(/&edge=curl/g, "");
 }
 let lightboxToken = 0;
-function openLightbox(url) {
+/* ---------- 別レコードの高解像度表紙を探す ----------
+   Google Books では同じ本でも複数のレコードがあり、大きい表紙（zoom=0）が
+   実物のレコードとプレースホルダーのレコードが混在する。現在のレコードに
+   大きい表紙が無い場合、ISBN・書名から別レコードを探して付け替える */
+function googleIdFromUrl(url) {
+  const m = String(url || "").match(/[?&]id=([A-Za-z0-9_-]+)/);
+  return m ? m[1] : null;
+}
+function googleCoverUrl(id, zoom) {
+  return `https://books.google.com/books/content?id=${id}&printsec=frontcover&img=1&zoom=${zoom}&source=gbs_api`;
+}
+function probeImageSize(url, timeoutMs = 4000) {
+  return new Promise((resolve) => {
+    const im = new Image();
+    const timer = setTimeout(() => resolve(null), timeoutMs);
+    im.onload = () => { clearTimeout(timer); resolve({ w: im.naturalWidth, h: im.naturalHeight }); };
+    im.onerror = () => { clearTimeout(timer); resolve(null); };
+    im.src = url;
+  });
+}
+const isPlaceholderSize = (s) => Boolean(s) && s.w === 575 && s.h === 750;
+async function googleBookFetch(url) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error("google books " + res.status);
+  return res.json();
+}
+async function googleVolumeById(id) {
+  const params = new URLSearchParams({ fields: "volumeInfo(title,authors,industryIdentifiers)" });
+  const gk = usableGoogleKey(); if (gk) params.set("key", gk);
+  return googleBookFetch(`https://www.googleapis.com/books/v1/volumes/${encodeURIComponent(id)}?${params.toString()}`);
+}
+async function googleVolumeSearch(q) {
+  const params = new URLSearchParams({ q, printType: "books", langRestrict: "ja", maxResults: "10", country: "JP",
+    fields: "items(id,volumeInfo(title,authors,imageLinks))" });
+  const gk = usableGoogleKey(); if (gk) params.set("key", gk);
+  return googleBookFetch(`https://www.googleapis.com/books/v1/volumes?${params.toString()}`);
+}
+async function findAltCoverRecord(title, currentUrl) {
+  const id0 = googleIdFromUrl(currentUrl);
+  if (!id0 || !title) return null;
+  const deadline = Date.now() + 9000;
+  let vol0 = "", isbn = "";
+  try {
+    const info = (await googleVolumeById(id0))?.volumeInfo || {};
+    vol0 = extractVolume(info.title || "", title.name);
+    const ids = Array.isArray(info.industryIdentifiers) ? info.industryIdentifiers : [];
+    isbn = (ids.find((x) => x.type === "ISBN_13") || ids.find((x) => x.type === "ISBN_10") || {}).identifier || "";
+  } catch { /* レコード情報が取れなくても書名検索で続行 */ }
+  const queries = [];
+  if (isbn) queries.push(`isbn:${isbn}`);
+  const titleQuery = [`intitle:${title.name}`];
+  if (title.author) titleQuery.push(`inauthor:${title.author}`);
+  queries.push(titleQuery.join(" "));
+  const seen = new Set([id0]);
+  const candidates = [];
+  for (const q of queries) {
+    if (candidates.length >= 6 || Date.now() > deadline) break;
+    let data;
+    try { data = await googleVolumeSearch(q); } catch { continue; }
+    for (const item of (Array.isArray(data.items) ? data.items : [])) {
+      if (!item.id || seen.has(item.id)) continue;
+      const info = item.volumeInfo || {};
+      if (!info.imageLinks?.thumbnail && !info.imageLinks?.smallThumbnail) continue;
+      const nt = normalizeText(info.title || ""), nname = normalizeText(title.name);
+      const itemVol = extractVolume(info.title || "", title.name);
+      const titleOk = nt === nname || nt.startsWith(nname) || Boolean(itemVol);
+      const volOk = !vol0 || !itemVol || itemVol === vol0;
+      const authorOk = !title.author || !(info.authors || []).length
+        || (info.authors || []).some((a) => normalizeText(a).includes(normalizeText(title.author)) || normalizeText(title.author).includes(normalizeText(a)));
+      if (titleOk && volOk && authorOk) { seen.add(item.id); candidates.push(item.id); }
+    }
+  }
+  for (const id of candidates.slice(0, 6)) {
+    if (Date.now() > deadline) break;
+    const size = await probeImageSize(googleCoverUrl(id, 0));
+    if (size && !isPlaceholderSize(size)) return { thumbUrl: googleCoverUrl(id, 1), hiUrl: googleCoverUrl(id, 0) };
+  }
+  return null;
+}
+function openLightbox(url, title) {
   if (!url) return;
   const img = $("#lightboxImg");
   const original = String(url).replace(/^http:/, "https:");
@@ -935,15 +1014,26 @@ function openLightbox(url) {
   /* 元画像は裏で読み込んでおき、大きい版がダメな場合の受け先にする */
   const origProbe = new Image();
   origProbe.src = original;
-  const probe = new Image();
-  probe.onload = () => {
-    /* Google Books の「image not available」プレースホルダーは zoom=0 で 575x750 固定。
-       実物の表紙と寸法で見分け、プレースホルダーなら通常版を表示する */
-    if (probe.naturalWidth === 575 && probe.naturalHeight === 750) show(original);
-    else show(hi);
-  };
-  probe.onerror = () => show(original);
-  probe.src = hi;
+  (async () => {
+    const size = await probeImageSize(hi, 6000);
+    if (token !== lightboxToken) return;
+    if (size && !isPlaceholderSize(size)) { show(hi); return; }
+    /* 現在のレコードに大きい表紙が無い → 別レコードを探す（30日間は再探索しない） */
+    const checkedAt = Number(title?.coverAltCheckedAt || 0);
+    if (title && googleIdFromUrl(original) && Date.now() - checkedAt > 30 * 24 * 3600 * 1000) {
+      const alt = await findAltCoverRecord(title, original).catch(() => null);
+      if (token !== lightboxToken) return;
+      if (alt) {
+        title.thumbnailUrl = alt.thumbUrl; /* 良いレコードに付け替えて保存し、次回から直接使う */
+        save();
+        show(alt.hiUrl);
+        return;
+      }
+      title.coverAltCheckedAt = Date.now();
+      save();
+    }
+    show(original);
+  })();
 }
 function closeLightbox() {
   lightboxToken++;
